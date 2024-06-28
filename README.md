@@ -1,3 +1,6 @@
+# 感想
+random playerを8打で倒したの気持すぎる
+
 # submarine_game
 人やAIが対戦できる潜水艦ゲーム。 
 クライアントプログラム作成用の詳しい仕様は[こちら](/doc/document.md)
