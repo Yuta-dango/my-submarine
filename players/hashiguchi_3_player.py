@@ -147,6 +147,7 @@ class MyPlayer(Player):
         # 可視化しやすいように、敵の盤面の確率を表示
         print(self.enemy.prob())
 
+        #######行動1: 攻撃可能なマスのうち最も相手がいる確率の高いマスを攻撃する#######
         # 敵がいる確率が最も高い座標
         best_position = self.enemy.where_to_attack()[0] 
 
@@ -157,6 +158,10 @@ class MyPlayer(Player):
                 attackable_prob = self.enemy.prob()[position]
                 break
         
+        # toに攻撃した時の命中確率が、best_positionの確率のa倍以上なら攻撃する
+        # むやみに移動すると、相手に場所を開示することになるので、相手が強い場合は得策ではない
+        a = 0.3
+
         # 攻撃できて、当たる可能性のある座標がある場合
         if attackable_prob:
             # self.enemy.prob()のうち、valueがattackable_probであり、かつ攻撃可能な座標
@@ -164,20 +169,20 @@ class MyPlayer(Player):
             # 確率が高い座標のうち、最も中心に近い座標を選ぶ
             to = choose_nearest((2, 2), attackable_positions) # tuple
 
-            # toに攻撃した時の命中確率が、best_positionの確率のa倍以上なら攻撃する
-            # 移動すると、相手に場所を開示することになるので、相手が強い場合は得策ではない
-            a = 0.1
             if attackable_prob >= a * self.enemy.prob()[best_position]:
                 to = list(to) # tuple -> list
-                print(f"attack: {to}")
+                print(f"行動1・attack: {to}")
                 return json.dumps(self.attack(to)) # dict -> JSON形式の文字列
 
-        # ここでまだreturnされていない場合、移動する
-        # 相手の船が存在する可能性があるマスの周囲へ移動
+        #######行動2: 攻撃する価値がないなら、相手の船が存在する可能性があるマスの周囲へ移動######
 
         # 移動先の候補
         to_candidate = {} # {(x, y): そこにいけるshipオブジェクト}
         for coordinate in self.enemy.where_to_attack(): # 敵の盤面の確率が高い座標から順に
+            # coordinate の確率がa * self.enemy.prob()[best_position]より小さいなら、そのマスを目指す価値はない
+            # これを入れとかないと「攻撃するのは確率が低いからやめたマス」の周りに移動するみたいなことが起こる
+            if self.enemy.prob()[coordinate] < a * self.enemy.prob()[best_position]:
+                break
             for position in all_nears(coordinate, me=True): # その座標の周囲1マス(自身を含む)の座標について回す
                 for ship in self.ships.values(): # shipオブジェクトについて回す
                     if ship.can_reach(position) and self.overlap(position) is None:
@@ -187,25 +192,26 @@ class MyPlayer(Player):
             # ただし、周辺マスのうち、現在の自分の位置との距離が最も近いマスに移動する
             if to_candidate: 
                 to = min(list(to_candidate.keys()), key=lambda x: distance(x, to_candidate[x].position)) # to_candidate[x]はshipオブジェクト。hpが最も低い船を選ぶ 
-                print(f"tooooooooooooo: {to}")
                 
                 ship = to_candidate[to]    
                 to = list(to) # tuple -> list
-                print(f"move: {ship.type, to}")
+                print(f"行動2・move: {ship.type, to}")
                 return json.dumps(self.move(ship.type, to)) # dict -> JSON形式の文字列
         
+        #######行動3: それでも無理なら、相手がいる可能性が最も高いマスにx座標を合わせる######
+
+
         # hpが最も低い船を選ぶ
         # ここでもmin関数のkey引数を使う
         ship = min(self.ships.values(), key=lambda x: x.hp)
 
-        # それでも無理なら、相手がいる可能性が最も高いマスにx座標を合わせる
         to = [None, None]
         to[0] = self.enemy.where_to_attack()[0][0]
         # to[1]は0からFIELD_SIZE-1までのランダム整数
         to[1] = random.randint(0, Player.FIELD_SIZE-1) # randintは両端を含む
         while not ship.can_reach(to) or not self.overlap(to) is None: # 移動できない　or 他のshipと重複している
                 to[1] = random.randint(0, Player.FIELD_SIZE-1)
-        print(f"move: {ship.type, to}")
+        print(f"行動3・move: {ship.type, to}")
         return json.dumps(self.move(ship.type, to))
 
     def update(self, json_):
