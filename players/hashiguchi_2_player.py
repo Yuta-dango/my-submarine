@@ -13,6 +13,7 @@ from lib.player_base import Player, PlayerShip
 
 
 class Enemy:
+    
     def __init__(self):
         self.df = pd.DataFrame(make_all_coordinates()) # 盤面の全パターンを初期値に
         # self.hp = {"w": 3, "c": 2, "s": 1} 相手のhpは今のところ不要では？
@@ -158,14 +159,17 @@ class MyPlayer(Player):
 
         # 相手が存在する可能性のあるマスに攻撃可能な座標がない場合は、この時点でまだreturnされていない
 
-        # まずは、相手の船が存在する可能性があるマスに移動可能であれば移動
-        # 本当は相手の船が存在する可能性があるマスの周囲でもOKだが、、
+        # 相手の船が存在する可能性があるマスの周囲へ移動
         for coordinate in self.enemy.where_to_attack(): # 敵の盤面の確率が高い座標から順に
-            for ship in self.ships.values(): # shipオブジェクトについて回す
-            
-                if ship.can_reach(coordinate) and self.overlap(coordinate) is None:
-                    to = coordinate
-                    return json.dumps(self.move(ship.type, to)) # dict -> JSON形式の文字列
+            ok_coordinates = [[coordinate[0] + i, coordinate[1] + j] for i in range(-1, 2) for j in range(-1, 2)]
+            for position in ok_coordinates: 
+                if not Player.in_field(position): # フィールド外ならスキップ
+                    continue
+                for ship in self.ships.values(): # shipオブジェクトについて回す
+                
+                    if ship.can_reach(position) and self.overlap(position) is None:
+                        to = position
+                        return json.dumps(self.move(ship.type, to)) # dict -> JSON形式の文字列
         
         # それでも無理なら、相手がいる可能性が最も高いマスにx座標を合わせる
         to = [None, None]

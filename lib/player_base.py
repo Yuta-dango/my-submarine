@@ -90,6 +90,7 @@ class Player:
             and any([ship.can_attack(to) for ship in self.ships.values()])
 
     # 与えられた座標がフィールドないかどうかを返す．
+    @staticmethod
     def in_field(position):
         return position[0] < Player.FIELD_SIZE and position[1] < Player.FIELD_SIZE\
             and position[0] >= 0 and position[1] >= 0

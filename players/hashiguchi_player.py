@@ -160,17 +160,19 @@ class MyPlayer(Player):
 
         # まずは、相手の船が存在する可能性があるマスに移動可能であれば移動
         # 本当は相手の船が存在する可能性があるマスの周囲でもOKだが、、
-        for ship in self.ships.values(): # shipオブジェクトについて回す
-            for coordinate in self.enemy.where_to_attack(): # 敵の盤面の確率が高い座標から順に
+        for coordinate in self.enemy.where_to_attack(): # 敵の盤面の確率が高い座標から順に
+            for ship in self.ships.values(): # shipオブジェクトについて回す
                 if ship.can_reach(coordinate) and self.overlap(coordinate) is None:
                     to = coordinate
                     return json.dumps(self.move(ship.type, to)) # dict -> JSON形式の文字列
         
-        # それでも無理なら、ランダムに動く
-        ship = random.choice(list(self.ships.values()))
-        to = random.choice(self.field)
+        # それでも無理なら、相手がいる可能性が最も高いマスにx座標を合わせる
+        to = [None, None]
+        to[0] = self.enemy.where_to_attack()[0][0]
+        # to[1]は0からFIELD_SIZE-1までのランダム整数
+        to[1] = random.randint(0, Player.FIELD_SIZE-1) # randintは両端を含む
         while not ship.can_reach(to) or not self.overlap(to) is None: # 移動できない　or 他のshipと重複している
-                to = random.choice(self.field)
+                to[1] = random.randint(0, Player.FIELD_SIZE-1)
         return json.dumps(self.move(ship.type, to))
 
     def update(self, json_):
@@ -196,6 +198,7 @@ class MyPlayer(Player):
         # {"moved":{"ship":"w","distance":[0,-2]}}を捉えて処理
         if "moved" in result:
             # 動いた船と方向を入れて、self.enemy.dfを更新する
+            print(result)
             self.enemy.move(result["moved"]["ship"], result["moved"]["distance"])
 
         # {"attacked":{"position":[4,2],"hit":"s","near":["w"]}}を捉えて処理
