@@ -4,16 +4,15 @@ import random
 import socket
 import sys
 import pandas as pd
-
+import numpy as np
 
 sys.path.append("/Users/hashiguchiyutaka/Desktop/3S/prog/submarine-py")
 
-from lib.make_coordinates import make_all_coordinates, valid_coordinates, make_not_near_coordinates, distance
+from lib.make_coordinates import make_all_coordinates, valid_coordinates, make_not_near_coordinates, all_nears, choose_nearest, distance
 from lib.player_base import Player, PlayerShip
 
 
 class Enemy:
-    
     def __init__(self):
         self.df = pd.DataFrame(make_all_coordinates()) # 盤面の全パターンを初期値に
         # self.hp = {"w": 3, "c": 2, "s": 1} 相手のhpは今のところ不要では？
@@ -57,13 +56,12 @@ class Enemy:
         """
         敵のattackを処理し、self.dfを更新
         position = [1,0]などの相手の攻撃した座標
+        positionの周囲1マス(自身を含む)にいずれかの敵がいることが確定する
         """
-        # positionの周囲1マスを取得(ここに相手がいることになる)
-        # ここでは盤面の外の座標が入ってしまっても問題ない
-        near_positions = [(position[0] + i, position[1] + j) for i in range(-1, 2) for j in range(-1, 2)]
+        near_positions = all_nears(position, me=True)
 
         # self.dfの中から、near_positionsに含まれる座標を持つ行のみを残す
-        # ただし、w,c,sが全て存在するとは限らないことに注意
+        # ただし、この時点で敵のw,c,sが全て存在するとは限らないことに注意
 
         # self.dfの行が、near_positionsに含まれる座標を持つかどうかを判定する関数
         def is_valid(x): # xはself.dfの行
@@ -79,8 +77,8 @@ class Enemy:
         """
         自分の攻撃がhitして、かつその船がまだ生きている時の処理
         """
-        position = tuple(position) # 忘れずに
-        self.df = self.df[self.df[ship_type] == position]
+        coordinate = tuple(position) # 忘れずに
+        self.df = self.df[self.df[ship_type] == coordinate]
         # print(self.prob()) hit関数が動いているなら、ここを表示すると常に確率1の座標が存在するはず
 
     def miss(self, position) -> None:
@@ -95,10 +93,9 @@ class Enemy:
         自分の攻撃の結果、ship_typeがnearにいた時の処理
         positionの周囲1マス(自身を含まない)にその船がいることが確定する
         """
-        position = tuple(position)
+        coordinate = tuple(position)
         # near_positionsはpositionの周囲1マス(自身を含まない)の座標
-        near_positions = [(position[0] + i, position[1] + j) for i in range(-1, 2) for j in range(-1, 2)]
-        near_positions.remove(position) 
+        near_positions = all_nears(coordinate, me=False)
         self.df = self.df[self.df[ship_type].map(lambda x: x in near_positions)]
 
     def not_near(self, ship_type, position) -> None:
@@ -106,9 +103,9 @@ class Enemy:
         自分の攻撃の結果、ship_typeがnot_nearだった時の処理
         positionの周囲1マス(自身を含む)以外のマスにその船がいることが確定する
         """
-        position = tuple(position)
+        coordinate = tuple(position)
         # near_positionsはpositionの周囲1マス(自身を含む)の座標
-        near_positions = [(position[0] + i, position[1] + j) for i in range(-1, 2) for j in range(-1, 2)]
+        near_positions = all_nears(coordinate, me=True)
         self.df = self.df[self.df[ship_type].map(lambda x: x not in near_positions)]
 
     def prob(self):
@@ -150,27 +147,57 @@ class MyPlayer(Player):
         # 可視化しやすいように、敵の盤面の確率を表示
         print(self.enemy.prob())
 
-        to = None # UnboundLocalErrorを避けるためにNoneで初期化
-        for coordinate in self.enemy.where_to_attack():
-            position = list(coordinate) # ここでリストに変換(4,2) -> [4,2]
+        # 敵がいる確率が最も高い座標
+        best_position = self.enemy.where_to_attack()[0] 
+
+        # 攻撃可能な座標のうち、確率が最も高い座標を探す
+        attackable_prob = None # UnboundLocalErrorを避けるためにNoneで初期化
+        for position in self.enemy.where_to_attack():
             if self.can_attack(position):
-                to = position
+                attackable_prob = self.enemy.prob()[position]
+                break
+        
+        # 攻撃できて、当たる可能性のある座標がある場合
+        if attackable_prob:
+            # self.enemy.prob()のうち、valueがattackable_probであり、かつ攻撃可能な座標
+            attackable_positions = [position for position in self.enemy.where_to_attack() if self.can_attack(position) and self.enemy.prob()[position] == attackable_prob]
+            # 確率が高い座標のうち、最も中心に近い座標を選ぶ
+            to = choose_nearest((2, 2), attackable_positions) # tuple
+
+            # toに攻撃した時の命中確率が、best_positionの確率のa倍以上なら攻撃する
+            # 移動すると、相手に場所を開示することになるので、相手が強い場合は得策ではない
+            a = 0.1
+            if attackable_prob >= a * self.enemy.prob()[best_position]:
+                to = list(to) # tuple -> list
+                print(f"attack: {to}")
                 return json.dumps(self.attack(to)) # dict -> JSON形式の文字列
 
-        # 相手が存在する可能性のあるマスに攻撃可能な座標がない場合は、この時点でまだreturnされていない
-
+        # ここでまだreturnされていない場合、移動する
         # 相手の船が存在する可能性があるマスの周囲へ移動
+
+        # 移動先の候補
+        to_candidate = {} # {(x, y): そこにいけるshipオブジェクト}
         for coordinate in self.enemy.where_to_attack(): # 敵の盤面の確率が高い座標から順に
-            ok_coordinates = [[coordinate[0] + i, coordinate[1] + j] for i in range(-1, 2) for j in range(-1, 2)]
-            for position in ok_coordinates: 
-                if not Player.in_field(position): # フィールド外ならスキップ
-                    continue
+            for position in all_nears(coordinate, me=True): # その座標の周囲1マス(自身を含む)の座標について回す
                 for ship in self.ships.values(): # shipオブジェクトについて回す
-                
                     if ship.can_reach(position) and self.overlap(position) is None:
-                        to = position
-                        return json.dumps(self.move(ship.type, to)) # dict -> JSON形式の文字列
+                        to_candidate[position] = ship
+
+            # to_candidateが空でないなら、このcoordinateの周辺に移動可能なので移動する
+            # ただし、周辺マスのうち、現在の自分の位置との距離が最も近いマスに移動する
+            if to_candidate: 
+                to = min(list(to_candidate.keys()), key=lambda x: distance(x, to_candidate[x].position)) # to_candidate[x]はshipオブジェクト。hpが最も低い船を選ぶ 
+                print(f"tooooooooooooo: {to}")
+                
+                ship = to_candidate[to]    
+                to = list(to) # tuple -> list
+                print(f"move: {ship.type, to}")
+                return json.dumps(self.move(ship.type, to)) # dict -> JSON形式の文字列
         
+        # hpが最も低い船を選ぶ
+        # ここでもmin関数のkey引数を使う
+        ship = min(self.ships.values(), key=lambda x: x.hp)
+
         # それでも無理なら、相手がいる可能性が最も高いマスにx座標を合わせる
         to = [None, None]
         to[0] = self.enemy.where_to_attack()[0][0]
@@ -178,6 +205,7 @@ class MyPlayer(Player):
         to[1] = random.randint(0, Player.FIELD_SIZE-1) # randintは両端を含む
         while not ship.can_reach(to) or not self.overlap(to) is None: # 移動できない　or 他のshipと重複している
                 to[1] = random.randint(0, Player.FIELD_SIZE-1)
+        print(f"move: {ship.type, to}")
         return json.dumps(self.move(ship.type, to))
 
     def update(self, json_):
