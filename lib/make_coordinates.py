@@ -3,6 +3,9 @@ import pandas as pd
 def valid_coordinates() -> set: # 要素はtuple
     return {(x, y) for x in range(5) for y in range(5)}
 
+def center_coordinates() -> set:
+    return {(x, y) for x in range(1, 4) for y in range(1, 4)}
+
 def make_all_coordinates():
     """
     return:
@@ -74,6 +77,7 @@ def choose_nearest(position, candidates):
     """
     # min関数にはkey引数があるので、これを使うと便利
     return min(candidates, key=lambda x: distance(position, x))
+
 
 def make_near_x_or_y(position, target):
     """

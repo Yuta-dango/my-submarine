@@ -8,7 +8,7 @@ import numpy as np
 
 sys.path.append("/Users/hashiguchiyutaka/Desktop/3S/prog/submarine-py")
 
-from lib.make_coordinates import make_all_coordinates, valid_coordinates, make_not_near_coordinates, all_nears, choose_nearest, distance, make_near_x_or_y
+from lib.make_coordinates import make_all_coordinates, valid_coordinates, make_not_near_coordinates, all_nears, choose_nearest, distance, make_near_x_or_y, center_coordinates
 from lib.player_base import Player, PlayerShip
 
 
@@ -182,11 +182,12 @@ class MyPlayer(Player):
                 
 
 
-
         ########行動0: 直近で攻撃されたときself.damaged_shipがsafe_positionに移動できるなら移動#######
         b = 0.7 # 相手がいる確率がb以上の場所を攻撃できるなら移動はしない
         if self.damaged_ship:
-            if attackable_prob > b: 
+            if not self.damaged_ship in self.ships.values(): # 保険
+                pass
+            elif attackable_prob > b: 
                 pass
             else:
                 safes = []
@@ -204,15 +205,22 @@ class MyPlayer(Player):
         
         # toに攻撃した時の命中確率が、best_positionの確率のa倍以上なら攻撃する
         # むやみに移動すると、相手に場所を開示することになるので、相手が強い場合は得策ではない
-        a = 0.1
+        a = 0.2
 
         # 攻撃できて、当たる可能性のある座標がある場合
         if attackable_prob:
             # self.enemy.prob()のうち、valueがattackable_probであり、かつ攻撃可能な座標
-            attackable_positions = [position for position in self.enemy.where_to_attack() if self.can_attack(position) and self.enemy.prob()[position] == attackable_prob]
-            # 確率が高い座標のうち、最も中心に近い座標を選ぶ
-            center = (Player.FIELD_SIZE-1)/2
-            to = choose_nearest((center, center), attackable_positions) # tuple
+            attackable_positions = {position for position in self.enemy.where_to_attack() if self.can_attack(position) and self.enemy.prob()[position] == attackable_prob}
+            
+            attackable_center_positions = attackable_positions & center_coordinates() # 攻撃可能な座標のうち、中心に近い(辺に面してない)座標
+            
+            # 中心に近い座標が存在するならそこからランダムに選ぶ
+            if attackable_center_positions: 
+                to = random.choice(list(attackable_center_positions))
+            else:
+                # 確率が高い座標のうち、最も中心に近い座標を選ぶ
+                center = (Player.FIELD_SIZE-1)/2
+                to = choose_nearest((center, center), attackable_positions) # tuple
 
             if attackable_prob >= a * best_prob:
                 to = list(to) # tuple -> list
@@ -227,7 +235,7 @@ class MyPlayer(Player):
             # coordinate の確率がa * self.enemy.prob()[best_position]より小さいなら、そのマスを目指す価値はない
             # これを入れとかないと「攻撃するのは確率が低いからやめたマス」の周りに移動するみたいなことが起こる
             c = 0.5
-            assert c > 0
+            assert c > a
             if self.enemy.prob()[coordinate] < c * best_prob:
                 break
             for position in all_nears(coordinate, me=True): # その座標の周囲1マス(自身を含む)の座標について回す
