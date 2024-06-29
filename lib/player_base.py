@@ -59,7 +59,7 @@ class Player:
     def update(self, json_):
         cond = json.loads(json_)['condition']['me']
         for ship_type in list(self.ships):
-            if ship_type not in cond:
+            if ship_type not in cond: # 自分の船が死んでたら消す
                 self.ships.pop(ship_type)
             else:
                 self.ships[ship_type].hp = cond[ship_type]['hp']

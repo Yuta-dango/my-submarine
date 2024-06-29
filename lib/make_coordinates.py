@@ -75,7 +75,20 @@ def choose_nearest(position, candidates):
     # min関数にはkey引数があるので、これを使うと便利
     return min(candidates, key=lambda x: distance(position, x))
 
-
+def make_near_x_or_y(position, target):
+    """
+    args:
+        position: tuple(自分の座標)targetに近づけたい
+        target: tuple (座標)
+    return:
+        x座標かy座標をtargetに近づけた座標(移動距離が短い方)
+    """
+    x, y = position
+    tx, ty = target
+    if abs(x - tx) <= abs(y - ty):
+        return (tx, y)
+    else:
+        return (x, ty)
 
 
 # tests
@@ -89,6 +102,10 @@ def test_which_is_near_center():
     assert which_is_near_center((0, 0), (0, 1)) == (0, 1)
     assert which_is_near_center((1, 1), (0, 2)) == (1, 1)
     
+def test_make_near_x_or_y():
+    assert make_near_x_or_y((0, 0), (2, 2)) == (2, 0)
+    assert make_near_x_or_y((0, 0), (3, 4)) == (3, 0)
+    assert make_near_x_or_y((1, 2), (2, 4)) == (2, 2)
 
 if __name__ == '__main__':
     import doctest
