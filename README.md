@@ -1,2 +1,2 @@
 # my-submarine
-潜水艦ゲーム
+my_best_player.pyと戦ってね
