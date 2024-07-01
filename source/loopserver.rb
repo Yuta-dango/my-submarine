@@ -1,4 +1,5 @@
 # coding: utf-8
+# l411でevenの回数決める
 require 'json'
 require 'socket'
 require 'optparse'
@@ -408,7 +409,7 @@ def main(opts)
       winner = one_action(sockets[c], sockets[1-c], c, server)
       c = 1 - c
       i += 1
-    end while winner == -1 && i < 10000
+    end while winner == -1 && i < 50
     if winner == -1
       sockets.each do |socket|
         if round == n-1

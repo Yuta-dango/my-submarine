@@ -12,18 +12,15 @@ from lib.make_coordinates import make_all_coordinates, valid_coordinates, make_n
 from lib.player_base import Player, PlayerShip
 
 # パラメータ
-if_attacked_move = 0.3 # 相手がいる確率がb以上の場所を攻撃できるなら移動はしない
-# 0.4 > 0.8
-# 0.5 > 0.2
-# 0.3 > 0.4
+if_attacked_move = 0.4 # 相手がいる確率がb以上の場所を攻撃できるなら移動はしない
+
 
 #######行動1: 攻撃可能なマスのうち最も相手がいる確率の高いマスを攻撃する#######
 # toに攻撃した時の命中確率が、best_positionの確率の●倍以上なら攻撃する
 # むやみに移動すると、相手に場所を開示することになるので、相手が強い場合は得策ではない
 attack_or_move = 0.1
 # 0.1 > 0.4
-# 0.1 > 0.2
-# 0.1 > 0.01
+
 
 
 #######行動2: 攻撃する価値がないなら、相手の船が存在する可能性があるマスの周囲へ移動######
@@ -31,8 +28,6 @@ attack_or_move = 0.1
 # coordinate の確率がa * self.enemy.prob()[best_position]より小さいなら、そのマスを目指す価値はない
 # これを入れとかないと「攻撃するのは確率が低いからやめたマス」の周りに移動するみたいなことが起こる
 for_now_or_future = 0.1
-# 0.2 > 0.5
-# 0.1 > 0.15 = attack_or_move
 
 
 class Enemy:
