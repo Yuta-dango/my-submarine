@@ -4,16 +4,14 @@ import random
 import socket
 import sys
 import pandas as pd
-
+import numpy as np
 
 sys.path.append("/Users/hashiguchiyutaka/Desktop/3S/prog/submarine-py")
 
-from lib.make_coordinates import make_all_coordinates, valid_coordinates, make_not_near_coordinates, distance
+from lib.make_coordinates import make_all_coordinates, valid_coordinates, make_not_near_coordinates, all_nears, choose_nearest, distance, make_near_x_or_y, center_coordinates
 from lib.player_base import Player, PlayerShip
 
-
 class Enemy:
-    
     def __init__(self):
         self.df = pd.DataFrame(make_all_coordinates()) # 盤面の全パターンを初期値に
         # self.hp = {"w": 3, "c": 2, "s": 1} 相手のhpは今のところ不要では？
@@ -57,13 +55,12 @@ class Enemy:
         """
         敵のattackを処理し、self.dfを更新
         position = [1,0]などの相手の攻撃した座標
+        positionの周囲1マス(自身を含む)にいずれかの敵がいることが確定する
         """
-        # positionの周囲1マスを取得(ここに相手がいることになる)
-        # ここでは盤面の外の座標が入ってしまっても問題ない
-        near_positions = [(position[0] + i, position[1] + j) for i in range(-1, 2) for j in range(-1, 2)]
+        near_positions = all_nears(position, me=True)
 
         # self.dfの中から、near_positionsに含まれる座標を持つ行のみを残す
-        # ただし、w,c,sが全て存在するとは限らないことに注意
+        # ただし、この時点で敵のw,c,sが全て存在するとは限らないことに注意
 
         # self.dfの行が、near_positionsに含まれる座標を持つかどうかを判定する関数
         def is_valid(x): # xはself.dfの行
@@ -79,8 +76,8 @@ class Enemy:
         """
         自分の攻撃がhitして、かつその船がまだ生きている時の処理
         """
-        position = tuple(position) # 忘れずに
-        self.df = self.df[self.df[ship_type] == position]
+        coordinate = tuple(position) # 忘れずに
+        self.df = self.df[self.df[ship_type] == coordinate]
         # print(self.prob()) hit関数が動いているなら、ここを表示すると常に確率1の座標が存在するはず
 
     def miss(self, position) -> None:
@@ -95,10 +92,9 @@ class Enemy:
         自分の攻撃の結果、ship_typeがnearにいた時の処理
         positionの周囲1マス(自身を含まない)にその船がいることが確定する
         """
-        position = tuple(position)
+        coordinate = tuple(position)
         # near_positionsはpositionの周囲1マス(自身を含まない)の座標
-        near_positions = [(position[0] + i, position[1] + j) for i in range(-1, 2) for j in range(-1, 2)]
-        near_positions.remove(position) 
+        near_positions = all_nears(coordinate, me=False)
         self.df = self.df[self.df[ship_type].map(lambda x: x in near_positions)]
 
     def not_near(self, ship_type, position) -> None:
@@ -106,11 +102,22 @@ class Enemy:
         自分の攻撃の結果、ship_typeがnot_nearだった時の処理
         positionの周囲1マス(自身を含む)以外のマスにその船がいることが確定する
         """
-        position = tuple(position)
+        coordinate = tuple(position)
         # near_positionsはpositionの周囲1マス(自身を含む)の座標
-        near_positions = [(position[0] + i, position[1] + j) for i in range(-1, 2) for j in range(-1, 2)]
+        near_positions = all_nears(coordinate, me=True)
         self.df = self.df[self.df[ship_type].map(lambda x: x not in near_positions)]
 
+    def safe_position(self) -> set:
+        """
+        相手の船が絶対にいない座標のsetを返す
+        """
+        not_safe = set() # {}とするとdictになるので注意
+        for coordinate in self.prob().keys():
+            # coordinateの周囲1マス(自身を含む)の座標をnot_safeに追加
+            not_safe = not_safe | all_nears(coordinate, me=True)
+        # valid_coordinates()からnot_safeを引いたものが安全な座標
+        return valid_coordinates() - not_safe # setの差集合
+    
     def prob(self):
         return self.df.stack().value_counts()/len(self.df)
     
@@ -133,6 +140,9 @@ class MyPlayer(Player):
         # 敵の盤面を管理するEnemyクラスのインスタンスを持たせる
         self.enemy = Enemy()
 
+        # 直近で攻撃された船を記録
+        self.damaged_ship = None
+
         # リストmake_not_near_coordinates()に存在する盤面の中からランダムに1つ選ぶ．
         positions = random.choice(make_not_near_coordinates())
         super().__init__(positions) # self.shipsが設定される
@@ -150,34 +160,114 @@ class MyPlayer(Player):
         # 可視化しやすいように、敵の盤面の確率を表示
         print(self.enemy.prob())
 
-        to = None # UnboundLocalErrorを避けるためにNoneで初期化
-        for coordinate in self.enemy.where_to_attack():
-            position = list(coordinate) # ここでリストに変換(4,2) -> [4,2]
+        # 敵がいる確率が最も高い座標
+        best_position = self.enemy.where_to_attack()[0] 
+        best_prob = self.enemy.prob()[best_position]   
+
+        # 攻撃可能な座標のうち、確率が最も高い座標を探す
+        attackable_prob = None # UnboundLocalErrorを避けるためにNoneで初期化
+        for position in self.enemy.where_to_attack():
             if self.can_attack(position):
-                to = position
+                attackable_prob = self.enemy.prob()[position]
+                break
+        ########行動0-0: もし自分の船が1つしか生き残ってないなら#######
+        if len(self.ships) == 1:
+            ship = list(self.ships.values())[0] # 唯一の船
+            # 確実に攻撃できるわけではなく、かつ自分の今いる場所が自分の今いる場所が安全なら
+            if attackable_prob != 1 and tuple(ship.position) in self.enemy.safe_position():
+                to = ship.position
+                print(f"行動0-0・attack: {to}")
+                return json.dumps(self.attack(to)) # dict -> JSON形式の文字列
+                
+
+
+        ########行動0: 直近で攻撃されたときself.damaged_shipがsafe_positionに移動できるなら移動#######
+        b = 0.7 # 相手がいる確率がb以上の場所を攻撃できるなら移動はしない
+        if self.damaged_ship:
+            if not self.damaged_ship in self.ships.values(): # 保険
+                pass
+            elif attackable_prob > b: 
+                pass
+            else:
+                safes = []
+                for position in self.enemy.safe_position():
+                    if self.damaged_ship.can_reach(position) and self.overlap(position) is None:
+                        safes.append(position)
+                if safes: # 安全なマスに移動できる場合
+                    # safesの中で、自分の位置との距離が最も近いマスに移動する
+                    to = min(safes, key=lambda x: distance(x, self.damaged_ship.position)) 
+                    to = list(to)
+                    if self.overlap(to) is None:
+                        print(f"行動0・move: {self.damaged_ship.type, to}")
+                        return json.dumps(self.move(self.damaged_ship.type, to)) # dict -> JSON形式の文字列
+
+        #######行動1: 攻撃可能なマスのうち最も相手がいる確率の高いマスを攻撃する#######
+        
+        # toに攻撃した時の命中確率が、best_positionの確率のa倍以上なら攻撃する
+        # むやみに移動すると、相手に場所を開示することになるので、相手が強い場合は得策ではない
+        a = 0.2
+
+        # 攻撃できて、当たる可能性のある座標がある場合
+        if attackable_prob:
+            # self.enemy.prob()のうち、valueがattackable_probであり、かつ攻撃可能な座標
+            attackable_positions = {position for position in self.enemy.where_to_attack() if self.can_attack(position) and self.enemy.prob()[position] == attackable_prob}
+            
+            attackable_center_positions = attackable_positions & center_coordinates() # 攻撃可能な座標のうち、中心に近い(辺に面してない)座標
+            
+            # 中心に近い座標が存在するならそこからランダムに選ぶ
+            if attackable_center_positions: 
+                to = random.choice(list(attackable_center_positions))
+            else:
+                # 確率が高い座標のうち、最も中心に近い座標を選ぶ
+                center = (Player.FIELD_SIZE-1)/2
+                to = choose_nearest((center, center), attackable_positions) # tuple
+
+            if attackable_prob >= a * best_prob:
+                to = list(to) # tuple -> list
+                print(f"行動1・attack: {to}")
                 return json.dumps(self.attack(to)) # dict -> JSON形式の文字列
 
-        # 相手が存在する可能性のあるマスに攻撃可能な座標がない場合は、この時点でまだreturnされていない
+        #######行動2: 攻撃する価値がないなら、相手の船が存在する可能性があるマスの周囲へ移動######
 
-        # 相手の船が存在する可能性があるマスの周囲へ移動
+        # 移動先の候補
+        to_candidate = {} # {(x, y): そこにいけるshipオブジェクト}
         for coordinate in self.enemy.where_to_attack(): # 敵の盤面の確率が高い座標から順に
-            ok_coordinates = [[coordinate[0] + i, coordinate[1] + j] for i in range(-1, 2) for j in range(-1, 2)]
-            for position in ok_coordinates: 
-                if not Player.in_field(position): # フィールド外ならスキップ
-                    continue
+            # coordinate の確率がa * self.enemy.prob()[best_position]より小さいなら、そのマスを目指す価値はない
+            # これを入れとかないと「攻撃するのは確率が低いからやめたマス」の周りに移動するみたいなことが起こる
+            c = 0.5
+            assert c > a
+            if self.enemy.prob()[coordinate] < c * best_prob:
+                break
+            for position in all_nears(coordinate, me=True): # その座標の周囲1マス(自身を含む)の座標について回す
                 for ship in self.ships.values(): # shipオブジェクトについて回す
-                
                     if ship.can_reach(position) and self.overlap(position) is None:
-                        to = position
-                        return json.dumps(self.move(ship.type, to)) # dict -> JSON形式の文字列
+                        to_candidate[position] = ship # 本当は同一座標に移動できる船が複数ある場合はどうするか考える必要がある
+
+            # to_candidateが空でないなら、このcoordinateの周辺に移動可能なので移動する
+            # ただし、周辺マスのうち、現在の自分の位置との距離が最も近いマスに移動する
+            if to_candidate: 
+                to = min(list(to_candidate.keys()), key=lambda x: distance(x, to_candidate[x].position)) # to_candidate[x]はshipオブジェクト。hpが最も低い船を選ぶ 
+                
+                ship = to_candidate[to]    
+                to = list(to) # tuple -> list
+                print(f"行動2・move: {ship.type, to}")
+                return json.dumps(self.move(ship.type, to)) # dict -> JSON形式の文字列
         
-        # それでも無理なら、相手がいる可能性が最も高いマスにx座標を合わせる
-        to = [None, None]
-        to[0] = self.enemy.where_to_attack()[0][0]
-        # to[1]は0からFIELD_SIZE-1までのランダム整数
-        to[1] = random.randint(0, Player.FIELD_SIZE-1) # randintは両端を含む
-        while not ship.can_reach(to) or not self.overlap(to) is None: # 移動できない　or 他のshipと重複している
-                to[1] = random.randint(0, Player.FIELD_SIZE-1)
+        #######行動3: それでも無理なら、相手がいる可能性が最も高いマスにx座標を合わせる######
+
+
+        # hpが最も低い船を選ぶ
+        # ここでもmin関数のkey引数を使う
+        ship = min(self.ships.values(), key=lambda x: x.hp)
+        
+        # 相手が存在する確率が最も高い座標
+        target = self.enemy.prob().idxmax() # idxmax()はvalueが最も大きいindexを返す
+
+        # targetの片方の座標をship.positionのx座標に合わせる
+        # この位置は、確実に到達できるし、自分の他の船がいることもない
+        to = list(make_near_x_or_y(ship.position, target)) 
+
+        print(f"行動3・move: {ship.type, to}")
         return json.dumps(self.move(ship.type, to))
 
     def update(self, json_):
@@ -198,6 +288,7 @@ class MyPlayer(Player):
         """
         相手のターンでは、相手の行動結果(result)を処理
         """
+        self.damaged_ship = None # 直近で攻撃された船をリセット
         result = json.loads(json_)['result']
 
         # {"moved":{"ship":"w","distance":[0,-2]}}を捉えて処理
@@ -211,6 +302,12 @@ class MyPlayer(Player):
             # 攻撃された座標を取得し、self.enemy.dfを更新する
             attacked_position = result["attacked"]["position"]
             self.enemy.attack(attacked_position)
+
+            # ヒットされた時
+            if "hit" in result["attacked"]:
+                # ヒットされた自分の船がまだ生きている場合
+                if result["attacked"]["hit"] in self.ships:
+                    self.damaged_ship = self.ships[result["attacked"]["hit"]] # 直近で攻撃された船を記録
 
     def my_update(self,json_):
         """
@@ -248,86 +345,49 @@ def main(host, port, seed=0):
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.connect((host, port))
-        with sock.makefile(mode='rw', buffering=1) as sockfile:
-            get_msg = sockfile.readline()
-            print(get_msg)
-            player = MyPlayer()
-            sockfile.write(player.initial_condition()+'\n') # 自分で決めた初期状態を書き込む
-
+        completed = False
+        with sock.makefile(mode="rw", buffering=1) as sockfile:
             while True:
-                info = sockfile.readline().rstrip() # sockfileから1行読み込む
-                print(info)
-                if info == "your turn":
-                    # アクションをしてsockfileに書き込む
-                    sockfile.write(player.action()+'\n')
+                get_msg = sockfile.readline()
+                print(get_msg)
+                player = MyPlayer()
+                sockfile.write(player.initial_condition() + "\n")
 
-                    # サーバからの応答を受け取る
-                    get_msg = sockfile.readline()
-                    # print(get_msg)
-                    player.update(get_msg) # get_msgはJSON形式の文字列
-                    # 自分のターンの時は、get_msgから自分の行動結果の情報を取得する
-                    player.my_update(get_msg)
+                while True:
+                    info = sockfile.readline().rstrip()
+                    print(info)
+                    if info == "your turn":
+                        sockfile.write(player.action() + "\n")
+                        get_msg = sockfile.readline()
+                        player.update(get_msg)
+                        player.my_update(get_msg)
 
-                elif info == "waiting":
-                    # 相手ターンの時は、get_msgから相手の行動についての情報を取得する
-                    get_msg = sockfile.readline()
-                    # print(get_msg)
-                    player.update(get_msg)
-                    player.enemy_update(get_msg)
-
-                    """
-                    get_msgの中身
-                    (自分のターンで"moved"を選択した場合、resultは返ってこない)
-                    {
-                    "result": {
-                        "attacked": {
-                        "position": [4, 2],
-                        "hit":"s",
-                        "near": []
-                        }
-                        or "moved": {
-                        "ship":"w",
-                        "distance":[-1,0]
-                        }
-                    },
-                    "condition": {
-                        "me": {
-                        "w": {
-                            "hp": 3,
-                            "position": [4, 0]
-                        },
-                        "c": {
-                            "hp": 2,
-                            "position": [0, 4]
-                        },
-                        "s": {
-                            "hp": 1,
-                            "position": [4, 3]
-                        }
-                        },
-                        "enemy": {
-                        "w": {
-                            "hp": 3
-                        },
-                        "c": {
-                            "hp": 2
-                        },
-                        "s": {
-                            "hp": 1
-                        }
-                        }
-                    }
-                    }
-                    """
-                elif info == "you win":
+                    elif info == "waiting":
+                        get_msg = sockfile.readline()
+                        player.update(get_msg)
+                        player.enemy_update(get_msg)
+                    elif info == "you win":
+                        break
+                    elif info == "you lose":
+                        break
+                    elif info == "even":
+                        break
+                    elif info == "you win.":
+                        completed = True
+                        break
+                    elif info == "you lose.":
+                        completed = True
+                        break
+                    elif info == "even.":
+                        completed = True
+                        break
+                    else:
+                        raise RuntimeError("unknown information")
+                if completed:
+                    for _ in range(5):
+                        info = sockfile.readline()
+                        print(info, end="")
                     break
-                elif info == "you lose":
-                    break
-                elif info == "even":
-                    break
-                else:
-                    raise RuntimeError("unknown information")
-
 
 if __name__ == '__main__':
     import argparse

@@ -244,85 +244,49 @@ def main(host, port, seed=0):
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.connect((host, port))
-        with sock.makefile(mode='rw', buffering=1) as sockfile:
-            get_msg = sockfile.readline()
-            print(get_msg)
-            player = MyPlayer()
-            sockfile.write(player.initial_condition()+'\n') # 自分で決めた初期状態を書き込む
-
+        completed = False
+        with sock.makefile(mode="rw", buffering=1) as sockfile:
             while True:
-                info = sockfile.readline().rstrip() # sockfileから1行読み込む
-                print(info)
-                if info == "your turn":
-                    # アクションをしてsockfileに書き込む
-                    sockfile.write(player.action()+'\n')
+                get_msg = sockfile.readline()
+                print(get_msg)
+                player = MyPlayer()
+                sockfile.write(player.initial_condition() + "\n")
 
-                    # サーバからの応答を受け取る
-                    get_msg = sockfile.readline()
-                    # print(get_msg)
-                    player.update(get_msg) # get_msgはJSON形式の文字列
-                    # 自分のターンの時は、get_msgから自分の行動結果の情報を取得する
-                    player.my_update(get_msg)
+                while True:
+                    info = sockfile.readline().rstrip()
+                    print(info)
+                    if info == "your turn":
+                        sockfile.write(player.action() + "\n")
+                        get_msg = sockfile.readline()
+                        player.update(get_msg)
+                        player.my_update(get_msg)
 
-                elif info == "waiting":
-                    # 相手ターンの時は、get_msgから相手の行動についての情報を取得する
-                    get_msg = sockfile.readline()
-                    # print(get_msg)
-                    player.update(get_msg)
-                    player.enemy_update(get_msg)
-
-                    """
-                    get_msgの中身
-                    (自分のターンで"moved"を選択した場合、resultは返ってこない)
-                    {
-                    "result": {
-                        "attacked": {
-                        "position": [4, 2],
-                        "hit":"s",
-                        "near": []
-                        }
-                        or "moved": {
-                        "ship":"w",
-                        "distance":[-1,0]
-                        }
-                    },
-                    "condition": {
-                        "me": {
-                        "w": {
-                            "hp": 3,
-                            "position": [4, 0]
-                        },
-                        "c": {
-                            "hp": 2,
-                            "position": [0, 4]
-                        },
-                        "s": {
-                            "hp": 1,
-                            "position": [4, 3]
-                        }
-                        },
-                        "enemy": {
-                        "w": {
-                            "hp": 3
-                        },
-                        "c": {
-                            "hp": 2
-                        },
-                        "s": {
-                            "hp": 1
-                        }
-                        }
-                    }
-                    }
-                    """
-                elif info == "you win":
+                    elif info == "waiting":
+                        get_msg = sockfile.readline()
+                        player.update(get_msg)
+                        player.enemy_update(get_msg)
+                    elif info == "you win":
+                        break
+                    elif info == "you lose":
+                        break
+                    elif info == "even":
+                        break
+                    elif info == "you win.":
+                        completed = True
+                        break
+                    elif info == "you lose.":
+                        completed = True
+                        break
+                    elif info == "even.":
+                        completed = True
+                        break
+                    else:
+                        raise RuntimeError("unknown information")
+                if completed:
+                    for _ in range(5):
+                        info = sockfile.readline()
+                        print(info, end="")
                     break
-                elif info == "you lose":
-                    break
-                elif info == "even":
-                    break
-                else:
-                    raise RuntimeError("unknown information")
 
 
 if __name__ == '__main__':
