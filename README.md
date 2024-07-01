@@ -1,5 +1,5 @@
-# 感想
-random playerを8打で倒したの気持すぎる
+# こんにちは
+my_best_player.pyと戦ってほしい。
 
 # submarine_game
 人やAIが対戦できる潜水艦ゲーム。 
