@@ -194,17 +194,6 @@ class MyPlayer(Player):
             if self.can_attack(position):
                 attackable_prob = self.enemy.prob()[position]
                 break
-        ########行動0-0: もし自分の船が1つしか生き残ってないなら#######
-        if len(self.ships) == 1:
-            ship = list(self.ships.values())[0] # 唯一の船
-            # 確実に攻撃できるわけではなく、かつ自分の今いる場所が自分の今いる場所が安全なら
-            if attackable_prob != 1 and tuple(ship.position) in self.enemy.safe_position():
-                to = ship.position
-                print(f"行動0-0・attack: {to}")
-                return json.dumps(self.attack(to)) # dict -> JSON形式の文字列
-                
-
-
         ########行動0: 直近で攻撃されたときself.damaged_shipがsafe_positionに移動できるなら移動#######
         if self.damaged_ship:
             if not self.damaged_ship in self.ships.values(): # 保険
@@ -223,6 +212,21 @@ class MyPlayer(Player):
                     if self.overlap(to) is None:
                         print(f"行動0・move: {self.damaged_ship.type, to}")
                         return json.dumps(self.move(self.damaged_ship.type, to)) # dict -> JSON形式の文字列
+
+
+
+        ########行動0-0: もし自分の船が1つしか生き残ってないなら#######
+        if len(self.ships) == 1:
+            ship = list(self.ships.values())[0] # 唯一の船
+            # 確実に攻撃できるわけではなく、かつ自分の今いる場所が自分の今いる場所が安全なら
+            if attackable_prob != 1 and tuple(ship.position) in self.enemy.safe_position():
+                to = ship.position
+                print(f"行動0-0・attack: {to}")
+                return json.dumps(self.attack(to)) # dict -> JSON形式の文字列
+                
+
+
+        
 
         #######行動1: 攻撃可能なマスのうち最も相手がいる確率の高いマスを攻撃する#######
         
@@ -280,7 +284,7 @@ class MyPlayer(Player):
 
         # hpが最も低い船を選ぶ
         # ここでもmin関数のkey引数を使う
-        ship = min(self.ships.values(), key=lambda x: x.hp)
+        ship = max(self.ships.values(), key=lambda x: x.hp)
         
         # 相手が存在する確率が最も高い座標
         target = self.enemy.prob().idxmax() # idxmax()はvalueが最も大きいindexを返す
@@ -307,9 +311,6 @@ class MyPlayer(Player):
         self.enemy.df = self.enemy.df[self.enemy.ships]
 
     def enemy_update(self, json_):
-        """
-        相手のターンでは、相手の行動結果(result)を処理
-        """
         self.damaged_ship = None # 直近で攻撃された船をリセット
         result = json.loads(json_)['result']
 
